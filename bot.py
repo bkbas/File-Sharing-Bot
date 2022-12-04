@@ -1,6 +1,8 @@
 #(©)Codexbotz
 
+import asyncio
 from aiohttp import web
+from helper_func import ping_server
 from plugins import web_server
 
 import pyromod.listen
@@ -9,7 +11,7 @@ from pyrogram.enums import ParseMode
 import sys
 from datetime import datetime
 
-from config import API_HASH, APP_ID, LOGGER, TG_BOT_TOKEN, TG_BOT_WORKERS, FORCE_SUB_CHANNEL, CHANNEL_ID, PORT
+from config import ALWAYS_ON, API_HASH, APP_ID, LOGGER, TG_BOT_TOKEN, TG_BOT_WORKERS, FORCE_SUB_CHANNEL, CHANNEL_ID, PORT
 
 
 name ="""
@@ -20,6 +22,28 @@ name ="""
 ╚█████╔╝╚█████╔╝██████╔╝███████╗██╔╝╚██╗██████╦╝╚█████╔╝░░░██║░░░███████╗
 ░╚════╝░░╚════╝░╚═════╝░╚══════╝╚═╝░░╚═╝╚═════╝░░╚════╝░░░░╚═╝░░░╚══════╝
 """
+
+if ALWAYS_ON:
+    from threading import Thread
+
+    from flask import Flask, jsonify
+    
+    app = Flask('')
+    
+    @app.route('/')
+    def main():
+        res = {
+            "status":"running",
+            "hosted":"replit.com",
+        }
+        return jsonify(res)
+
+    def run():
+      app.run(host="0.0.0.0", port=8000)
+    
+    async def keep_alive():
+      server = Thread(target=run)
+      server.start()
 
 
 class Bot(Client):
@@ -37,6 +61,10 @@ class Bot(Client):
         self.LOGGER = LOGGER
 
     async def start(self):
+        if ALWAYS_ON:
+            await keep_alive()
+            asyncio.create_task(ping_server())
+            
         await super().start()
         usr_bot_me = await self.get_me()
         self.uptime = datetime.now()
@@ -77,10 +105,7 @@ class Bot(Client):
                                           """)
         self.username = usr_bot_me.username
         #web-response
-        app = web.AppRunner(await web_server())
-        await app.setup()
-        bind_address = "0.0.0.0"
-        await web.TCPSite(app, bind_address, PORT).start()
+
 
     async def stop(self, *args):
         await super().stop()

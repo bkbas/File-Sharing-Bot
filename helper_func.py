@@ -5,9 +5,15 @@ import re
 import asyncio
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
-from config import FORCE_SUB_CHANNEL, ADMINS
+from config import FORCE_SUB_CHANNEL, ADMINS, SERVER_URL
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 from pyrogram.errors import FloodWait
+import logging
+import traceback
+import asyncio
+import aiohttp
+
+
 
 async def is_subscribed(filter, client, update):
     if not FORCE_SUB_CHANNEL:
@@ -19,24 +25,18 @@ async def is_subscribed(filter, client, update):
         member = await client.get_chat_member(chat_id = FORCE_SUB_CHANNEL, user_id = user_id)
     except UserNotParticipant:
         return False
-
-    if not member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
-        return False
-    else:
-        return True
+    return member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]
 
 async def encode(string):
     string_bytes = string.encode("ascii")
     base64_bytes = base64.urlsafe_b64encode(string_bytes)
-    base64_string = (base64_bytes.decode("ascii")).strip("=")
-    return base64_string
+    return (base64_bytes.decode("ascii")).strip("=")
 
 async def decode(base64_string):
     base64_string = base64_string.strip("=") # links generated before this commit will be having = sign, hence striping them to handle padding errors.
     base64_bytes = (base64_string + "=" * (-len(base64_string) % 4)).encode("ascii")
-    string_bytes = base64.urlsafe_b64decode(base64_bytes) 
-    string = string_bytes.decode("ascii")
-    return string
+    string_bytes = base64.urlsafe_b64decode(base64_bytes)
+    return string_bytes.decode("ascii")
 
 async def get_messages(client, message_ids):
     messages = []
@@ -54,7 +54,7 @@ async def get_messages(client, message_ids):
                 chat_id=client.db_channel.id,
                 message_ids=temb_ids
             )
-        except:
+        except Exception:
             pass
         total_messages += len(temb_ids)
         messages.extend(msgs)
@@ -62,27 +62,22 @@ async def get_messages(client, message_ids):
 
 async def get_message_id(client, message):
     if message.forward_from_chat:
-        if message.forward_from_chat.id == client.db_channel.id:
-            return message.forward_from_message_id
-        else:
-            return 0
-    elif message.forward_sender_name:
+        return message.forward_from_message_id if message.forward_from_chat.id == client.db_channel.id else 0
+
+    elif message.forward_sender_name or not message.text:
         return 0
-    elif message.text:
+    else:
         pattern = "https://t.me/(?:c/)?(.*)/(\d+)"
         matches = re.match(pattern,message.text)
         if not matches:
             return 0
-        channel_id = matches.group(1)
-        msg_id = int(matches.group(2))
+        channel_id = matches[1]
+        msg_id = int(matches[2])
         if channel_id.isdigit():
             if f"-100{channel_id}" == str(client.db_channel.id):
                 return msg_id
-        else:
-            if channel_id == client.db_channel.username:
-                return msg_id
-    else:
-        return 0
+        elif channel_id == client.db_channel.username:
+            return msg_id
 
 
 def get_readable_time(seconds: int) -> str:
@@ -108,3 +103,15 @@ def get_readable_time(seconds: int) -> str:
 
 
 subscribed = filters.create(is_subscribed)
+
+async def ping_server():
+    while True:
+        await asyncio.sleep(180)
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(SERVER_URL) as resp:
+                    logging.info(f"Pinged server with response: {resp.status}")
+        except TimeoutError:
+            logging.warning("Couldn't connect to the site URL..!")
+        except Exception:
+            traceback.print_exc()
